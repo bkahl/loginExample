@@ -3,34 +3,68 @@
  * Module dependencies.
  */
 
-var express = require('express')
-  , routes = require('./routes')
+var express = require('express'),
+    routes = require('./routes'),
+    cradle = require('cradle'),
+    fs = require('fs'),
+    util = require('util'),
+    exec = require('child_process').exec,
+    child;
 
-var app = module.exports = express.createServer();
+  var app = express.createServer(express.bodyParser());
+  var conn = new(cradle.Connection)();
+  var db = conn.database('users');
 
-// Configuration
-
-app.configure(function(){
-  app.set('views', __dirname + '/views');
+  require('jade');
   app.set('view engine', 'jade');
-  app.use(express.bodyParser());
-  app.use(express.methodOverride());
-  app.use(app.router);
-  app.use(express.static(__dirname + '/public'));
-});
+  app.set('view options', {layout: false});
+  app.use(express.logger());
 
-app.configure('development', function(){
-  app.use(express.errorHandler({ dumpExceptions: true, showStack: true })); 
-});
+  app.get('/', function(req, res){
+    res.render('index');
+  });
 
-app.configure('production', function(){
-  app.use(express.errorHandler()); 
-});
+  app.post('/register', function(req, res){
+    var data = req.body;
 
-// Routes
+    // Check if username is in use
+    db.get(data.username, function(err, doc) {
+      if(doc) {
+        res.render('index', {flash: 'Username is in use'});
 
-app.get('/', routes.index);
+      // Check if confirm password does not match
+      } else if(data.password !== data.confirm_password) {
+        res.render('index', {flash: 'Password does not match'});
 
-var port = process.env.PORT || 3000;
-app.listen(port);
+      // Create user in database
+      } else {
+        delete data.confirm_password;
+        db.save(data.username, data,
+          function(db_err, db_res) {
+            res.render('index', {flash: 'User created'});
+          });
+      }
+    });
+  });
+
+  app.post('/login', function(req, res){
+    var data = req.body;
+
+    // Check if there is a corresponding user in db
+    db.get(data.username,
+      function(err, doc){
+        if(!doc) {
+          res.render('index', {flash: 'No user found'});
+
+        // Check if passwords match
+        } else if(doc.password !== data.password) {
+          res.render('index', {flash: 'Wrong password'});
+
+        // User is logged in
+        } else { res.render('index', {flash: 'Logged in!'}); }
+    });
+  });
+
+  var port = process.env.PORT || 3000;
+  app.listen(port);
 console.log("Express server listening on port %d in %s mode", app.address().port, app.settings.env);
